@@ -3,7 +3,8 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0';
+  const APP_VERSION = '1.1';
+  const BUILD = '__BUILD__'; // remplacé automatiquement par GitHub Actions à chaque déploiement
   const K = { entries: 'gp.entries', poem: 'gp.poem', lists: 'gp.lists', meta: 'gp.meta' };
 
   const DEFAULT_LISTS = {
@@ -52,6 +53,43 @@
   const longDate = (k) => dateOf(k).toLocaleDateString('fr-CH', { weekday: 'long', day: 'numeric', month: 'long' });
   const mondayOf = (k) => { const d = dateOf(k); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return keyOf(d); };
   const daysBetween = (a, b) => Math.round((dateOf(b) - dateOf(a)) / 86400000);
+
+
+  /* ---------- Photos : IndexedDB (plus de place que localStorage) ---------- */
+  let dbP;
+  const db = () => (dbP ||= new Promise((res, rej) => {
+    const r = indexedDB.open('gratte-pas', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('photos', { keyPath: 'id' });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+  const tx = async (mode, fn) => {
+    const d = await db();
+    return new Promise((res, rej) => {
+      const t = d.transaction('photos', mode); const st = t.objectStore('photos');
+      const out = fn(st);
+      t.oncomplete = () => res(out && 'result' in out ? out.result : undefined);
+      t.onerror = () => rej(t.error);
+    });
+  };
+  const photoPut = (p) => tx('readwrite', (st) => st.put(p));
+  const photoGet = (id) => tx('readonly', (st) => st.get(id));
+  const photoDel = (id) => tx('readwrite', (st) => st.delete(id));
+  const photoAll = () => tx('readonly', (st) => st.getAll());
+  const photoClear = () => tx('readwrite', (st) => st.clear());
+
+  // Réduit la photo (1280 px max, JPEG) pour ménager la mémoire du téléphone.
+  async function shrink(file) {
+    let img;
+    try { img = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch { img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); }); }
+    const w = img.width; const h = img.height; const k = Math.min(1, 1280 / Math.max(w, h));
+    const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return new Promise((res) => c.toBlob((b) => res(b || file), 'image/jpeg', 0.8));
+  }
+  const blobToDataUrl = (b) => new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); });
+  const dataUrlToBlob = async (u) => (await fetch(u)).blob();
 
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -234,6 +272,51 @@
     noteTimer = setTimeout(() => save(), 600);
   });
 
+  // Photos du jour (facultatives)
+  let thumbUrls = [];
+  async function renderPhotos() {
+    thumbUrls.forEach((u) => URL.revokeObjectURL(u)); thumbUrls = [];
+    const ids = entry()?.photos || [];
+    const box = $('#photos');
+    const items = [];
+    for (const id of ids) {
+      let p; try { p = await photoGet(id); } catch { p = null; }
+      if (!p) continue;
+      const u = URL.createObjectURL(p.blob); thumbUrls.push(u);
+      items.push(`<button data-photo="${id}" aria-label="Voir la photo"><img src="${u}" alt=""></button>`);
+    }
+    box.innerHTML = items.join('');
+  }
+  $('#photoInput').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    try {
+      const blob = await shrink(f);
+      const id = `${current}-${Date.now()}`;
+      await photoPut({ id, date: current, blob, createdAt: new Date().toISOString() });
+      const e = ensure(); e.photos = [...(e.photos || []), id];
+      save(true); renderPhotos(); toast('Photo ajoutée.');
+    } catch { toast('Impossible d\'ajouter cette photo.'); }
+  });
+  let viewing = null; let viewUrl = null;
+  $('#photos').addEventListener('click', async (ev) => {
+    const b = ev.target.closest('[data-photo]'); if (!b) return;
+    const p = await photoGet(b.dataset.photo); if (!p) return;
+    viewing = p; viewUrl = URL.createObjectURL(p.blob);
+    $('#viewerImg').src = viewUrl; $('#viewer').hidden = false;
+  });
+  const closeViewer = () => { $('#viewer').hidden = true; if (viewUrl) URL.revokeObjectURL(viewUrl); viewing = null; };
+  $('#vClose').addEventListener('click', closeViewer);
+  $('#vSave').addEventListener('click', () => { if (viewing) shareFile(`gratte-pas-${viewing.date}.jpg`, viewing.blob, 'image/jpeg'); });
+  $('#vDel').addEventListener('click', async () => {
+    if (!viewing) return;
+    const v = viewing;
+    if (!await confirmBox('Supprimer cette photo ?', 'Supprimer')) return;
+    await photoDel(v.id);
+    const e = entries[v.date]; if (e) { e.photos = (e.photos || []).filter((x) => x !== v.id); }
+    store(K.entries, entries); closeViewer(); renderPhotos();
+  });
+
   $('#prevDay').addEventListener('click', () => { current = addDays(current, -1); renderToday(); });
   $('#nextDay').addEventListener('click', () => { if (current < todayKey()) { current = addDays(current, 1); renderToday(); } });
 
@@ -252,6 +335,7 @@
     $$('.chips.toggles button').forEach((b) => b.classList.toggle('on', !!e[b.dataset.flag]));
     $$('.chips.multi').forEach(renderMulti);
     $('#note').value = e.note || '';
+    renderPhotos();
     updateBanners();
   }
 
@@ -354,7 +438,7 @@
     $('#dayList').innerHTML = list.length ? list.map((k) => {
       const e = entries[k];
       const dot = (v) => v == null ? '<i style="background:var(--track);color:var(--muted)">–</i>' : `<i style="background:${levelColor(v)}">${v}</i>`;
-      const extra = [e.sommeil && 'mal dormi', e.paupieres === 'fort' && 'paupières ++', e.note && 'note'].filter(Boolean).join(' · ');
+      const extra = [e.sommeil && 'mal dormi', e.paupieres === 'fort' && 'paupières ++', e.note && 'note', (e.photos || []).length && 'photo'].filter(Boolean).join(' · ');
       return `<li data-day="${k}"><div class="d">${longDate(k)}<small>${esc(extra)}</small></div><div class="dots">${dot(e.visage)}${dot(e.demangeaison)}${dot(e.brulure)}</div></li>`;
     }).join('') : '<li class="empty">Rien encore sur cette période.</li>';
   }
@@ -406,13 +490,13 @@
   function renderData() {
     const n = Object.keys(entries).length;
     $('#backupInfo').textContent = `${n} jour${n > 1 ? 's' : ''} noté${n > 1 ? 's' : ''}. Dernière sauvegarde : ${meta.lastBackup ? chDate(meta.lastBackup.slice(0, 10)) : 'jamais'}.`;
-    $('#version').textContent = `Gratte pas · version ${APP_VERSION}`;
-    if (meta.reminderTime) $('#remTime').value = meta.reminderTime;
+    $('#version').textContent = `Gratte pas · version ${APP_VERSION}` + (BUILD.startsWith('__') ? ' (dev)' : ` · ${BUILD}`);
+    ['remTime', 'poemTime', 'poemDay'].forEach((id) => { if (meta[id]) $('#' + id).value = meta[id]; });
   }
 
   // Partager un fichier (Android : WhatsApp, Gmail, Drive…) ou le télécharger.
   async function shareFile(name, content, mime) {
-    const blob = new Blob([content], { type: mime });
+    const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
     const file = new File([blob], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: name }); return true; }
@@ -426,7 +510,9 @@
   }
 
   $('#btnBackup').addEventListener('click', async () => {
-    const data = { app: 'gratte-pas', format: 1, exportedAt: new Date().toISOString(), entries, poem, lists };
+    let photos = [];
+    try { photos = await Promise.all((await photoAll()).map(async (p) => ({ id: p.id, date: p.date, createdAt: p.createdAt, data: await blobToDataUrl(p.blob) }))); } catch {}
+    const data = { app: 'gratte-pas', format: 1, exportedAt: new Date().toISOString(), entries, poem, lists, photos };
     const ok = await shareFile(`gratte-pas-sauvegarde-${todayKey()}.json`, JSON.stringify(data, null, 1), 'application/json');
     if (ok) { meta.lastBackup = new Date().toISOString(); store(K.meta, meta); renderData(); updateBanners(); toast('Sauvegarde faite.'); }
   });
@@ -448,6 +534,9 @@
       if (!mine || (p.updatedAt || '') > (mine.updatedAt || '')) poem[k] = p;
     }
     for (const [k, arr] of Object.entries(data.lists || {})) lists[k] = [...new Set([...(lists[k] || []), ...arr])];
+    for (const p of data.photos || []) {
+      try { if (!await photoGet(p.id)) await photoPut({ id: p.id, date: p.date, createdAt: p.createdAt, blob: await dataUrlToBlob(p.data) }); } catch {}
+    }
     store(K.entries, entries); store(K.poem, poem); store(K.lists, lists);
     renderData(); toast('Sauvegarde restaurée.');
   });
@@ -468,13 +557,13 @@
     if (!keys.length) { toast('Rien à exporter pour l\'instant.'); return; }
     const rows = [['Date', 'Jour', 'Visage (0-10)', 'Démangeaison (0-10)', 'Brûlure (0-10)', 'Note max', 'Jour difficile',
       'Paupières gonflées', 'Yeux rouges / larmes', 'Éternuements', 'Mal dormi', 'Journée', 'Fatigue / stress (0-10)',
-      'Règles', 'Autres zones', 'Traitements', 'Contacts et activités', 'Note']];
+      'Règles', 'Autres zones', 'Traitements', 'Contacts et activités', 'Photos', 'Note']];
     keys.forEach((k) => {
       const e = entries[k]; const m = maxOf(e);
       rows.push([chDate(k), dateOf(k).toLocaleDateString('fr-CH', { weekday: 'long' }), e.visage, e.demangeaison, e.brulure,
         m >= 0 ? m : '', m >= 5, PAUP[e.paupieres] || '', e.yeux, e.eternuements, e.sommeil,
         e.impact != null ? IMPACT[e.impact] : '', e.fatigue, e.regles,
-        (e.zones || []).join(', '), (e.traitements || []).join(', '), (e.expositions || []).join(', '), e.note || '']);
+        (e.zones || []).join(', '), (e.traitements || []).join(', '), (e.expositions || []).join(', '), (e.photos || []).length || '', e.note || '']);
     });
     shareFile(`gratte-pas-journal-${todayKey()}.csv`, toCsv(rows), 'text/csv');
   });
@@ -490,42 +579,51 @@
     shareFile(`gratte-pas-bilans-poem-${todayKey()}.csv`, toCsv(rows), 'text/csv');
   });
 
-  // Rappel quotidien dans l'agenda
-  const remParts = () => { const [h, m] = ($('#remTime').value || '21:00').split(':'); return [pad(h), pad(m)]; };
-  $('#remTime').addEventListener('change', () => { meta.reminderTime = $('#remTime').value; store(K.meta, meta); });
-  const REM_TITLE = 'Gratte pas : 2 minutes pour ma peau';
-  const REM_TEXT = 'Ouvrir l\'app Gratte pas et noter la journée.';
-
-  $('#btnGcal').addEventListener('click', () => {
-    const [h, m] = remParts();
-    const d = todayKey().replace(/-/g, '');
-    const endMin = (Number(m) + 5) % 60; const endH = Number(m) + 5 >= 60 ? (Number(h) + 1) % 24 : Number(h);
+  // Rappels dans l'agenda (quotidien pour le journal, hebdomadaire pour le bilan)
+  const timeParts = (id, dflt) => { const [h, m] = ($(id).value || dflt).split(':'); return [pad(h), pad(m)]; };
+  ['remTime', 'poemTime', 'poemDay'].forEach((id) => $('#' + id).addEventListener('change', () => { meta[id] = $('#' + id).value; store(K.meta, meta); }));
+  const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const REMINDERS = {
+    daily: () => ({ time: timeParts('#remTime', '21:00'), start: todayKey(), rrule: 'RRULE:FREQ=DAILY',
+      title: 'Gratte pas : 2 minutes pour ma peau', text: 'Ouvrir l\'app Gratte pas et noter la journée.', file: 'gratte-pas-rappel-soir.ics' }),
+    weekly: () => {
+      const wd = Number($('#poemDay').value);
+      const d = new Date(); d.setDate(d.getDate() + ((wd - d.getDay() + 7) % 7));
+      return { time: timeParts('#poemTime', '20:00'), start: keyOf(d), rrule: `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[wd]}`,
+        title: 'Gratte pas : bilan de la semaine', text: 'Ouvrir Gratte pas, onglet Semaine : 7 questions, 1 minute.', file: 'gratte-pas-rappel-semaine.ics' };
+    }
+  };
+  function openGcal(r) {
+    const [h, m] = r.time; const d = r.start.replace(/-/g, '');
+    const endM = Number(m) + 5; const eh = pad((Number(h) + Math.floor(endM / 60)) % 24); const em = pad(endM % 60);
     const url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
-      + `&text=${encodeURIComponent(REM_TITLE)}`
-      + `&details=${encodeURIComponent(REM_TEXT)}`
-      + `&dates=${d}T${h}${m}00/${d}T${pad(endH)}${pad(endMin)}00`
+      + `&text=${encodeURIComponent(r.title)}&details=${encodeURIComponent(r.text)}`
+      + `&dates=${d}T${h}${m}00/${d}T${eh}${em}00`
       + `&ctz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Zurich')}`
-      + `&recur=${encodeURIComponent('RRULE:FREQ=DAILY')}`;
+      + `&recur=${encodeURIComponent(r.rrule)}`;
     const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
     document.body.appendChild(a); a.click(); a.remove();
-  });
-
-  $('#btnIcs').addEventListener('click', () => {
-    const [h, m] = remParts();
-    const d = todayKey().replace(/-/g, '');
+  }
+  function downloadIcs(r) {
+    const [h, m] = r.time; const d = r.start.replace(/-/g, '');
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Gratte pas//FR', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
-      `UID:gratte-pas-rappel-${Date.now()}@local`, `DTSTAMP:${stamp}`, `DTSTART:${d}T${h}${m}00`, 'DURATION:PT5M',
-      'RRULE:FREQ=DAILY', `SUMMARY:${REM_TITLE}`, `DESCRIPTION:${REM_TEXT}`,
-      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${REM_TITLE}`, 'TRIGGER:PT0M', 'END:VALARM',
+      `UID:${r.file}-${Date.now()}@gratte-pas`, `DTSTAMP:${stamp}`, `DTSTART:${d}T${h}${m}00`, 'DURATION:PT5M',
+      r.rrule, `SUMMARY:${r.title}`, `DESCRIPTION:${r.text}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${r.title}`, 'TRIGGER:PT0M', 'END:VALARM',
       'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
-    shareFile('gratte-pas-rappel.ics', ics, 'text/calendar');
-  });
+    shareFile(r.file, ics, 'text/calendar');
+  }
+  $('#btnGcal').addEventListener('click', () => openGcal(REMINDERS.daily()));
+  $('#btnIcs').addEventListener('click', () => downloadIcs(REMINDERS.daily()));
+  $('#btnGcalPoem').addEventListener('click', () => openGcal(REMINDERS.weekly()));
+  $('#btnIcsPoem').addEventListener('click', () => downloadIcs(REMINDERS.weekly()));
 
   $('#btnWipe').addEventListener('click', async () => {
     if (!await confirmBox('Effacer tout le journal de ce téléphone ? Fais d\'abord une sauvegarde si tu veux pouvoir le récupérer.', 'Tout effacer')) return;
     entries = {}; poem = {}; meta = {}; lists = Object.assign({}, DEFAULT_LISTS);
     [K.entries, K.poem, K.meta, K.lists].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
+    try { await photoClear(); } catch {}
     current = todayKey(); renderData(); toast('Tout est effacé.');
   });
 
@@ -545,7 +643,38 @@
   });
   renderToday();
 
+  /* ---------- Mises à jour automatiques ----------
+     À chaque déploiement, sw.js change (numéro de build) : le téléphone installe
+     la nouvelle version, l'app se recharge seule et affiche un bandeau. */
+  function showUpdated() {
+    let flag = null;
+    try { flag = sessionStorage.getItem('gp.updated'); sessionStorage.removeItem('gp.updated'); } catch {}
+    if (!flag) return;
+    const el = $('#bannerUpdate');
+    el.hidden = false;
+    setTimeout(() => { el.hidden = true; }, 5000);
+    el.addEventListener('click', () => { el.hidden = true; }, { once: true });
+  }
+  showUpdated();
+
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    let controlled = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!controlled) { controlled = true; return; } // première installation : pas de rechargement
+      if (reloading) return;
+      reloading = true;
+      const n = $('#note'); if (n && entries[current] && n.value !== (entries[current].note || '')) { entries[current].note = n.value; save(true); }
+      try { sessionStorage.setItem('gp.updated', '1'); } catch {}
+      location.reload();
+    });
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+        const check = () => reg.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+        setInterval(check, 60 * 60 * 1000);
+      } catch {}
+    });
   }
 })();

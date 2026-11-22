@@ -22,6 +22,9 @@
 
   <main>
     <!-- ============ AUJOURD'HUI ============ -->
+    <div class="banner ok" id="bannerUpdate" role="status" hidden>
+      <p>Application mise à jour ✓</p>
+    </div>
     <section id="v-today" class="view" data-view="today">
       <div class="banner" id="bannerBackup" hidden>
         <p id="bannerBackupText">Pense à faire une sauvegarde.</p>
@@ -98,6 +101,11 @@
 
         <h3>Note</h3>
         <textarea id="note" rows="3" placeholder="Ce qui sort de l'ordinaire… (le micro du clavier marche aussi)"></textarea>
+
+        <h3>Photos <span class="hint">(si tu en as envie)</span></h3>
+        <div class="photos" id="photos"></div>
+        <label class="btn ghost" for="photoInput">Ajouter une photo</label>
+        <input type="file" id="photoInput" accept="image/*" hidden>
       </details>
 
       <p class="saved" id="saved" aria-live="polite"></p>
@@ -157,14 +165,31 @@
       </div>
 
       <div class="card">
-        <h3>Rappel du soir</h3>
-        <p class="muted">Ajoute un rappel quotidien dans Google Agenda.</p>
+        <h3>Rappels dans l'agenda</h3>
+        <p class="muted">À faire une seule fois : le rappel se répète ensuite tout seul.</p>
+        <h4>Chaque soir : le journal</h4>
         <div class="row">
           <label for="remTime">Heure</label>
           <input type="time" id="remTime" value="21:00">
         </div>
-        <button class="btn" id="btnGcal">Ouvrir Google Agenda</button>
+        <button class="btn" id="btnGcal">Ajouter dans Google Agenda</button>
         <button class="btn ghost" id="btnIcs">Autre agenda (fichier .ics)</button>
+
+        <h4>Chaque semaine : le bilan</h4>
+        <div class="row">
+          <label for="poemDay">Jour</label>
+          <select id="poemDay">
+            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option>
+            <option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option>
+            <option value="0" selected>Dimanche</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="poemTime">Heure</label>
+          <input type="time" id="poemTime" value="20:00">
+        </div>
+        <button class="btn" id="btnGcalPoem">Ajouter dans Google Agenda</button>
+        <button class="btn ghost" id="btnIcsPoem">Autre agenda (fichier .ics)</button>
       </div>
 
       <div class="card danger">
@@ -181,6 +206,15 @@
     <button data-go="poem"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>Semaine</button>
     <button data-go="data"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Données</button>
   </nav>
+
+  <div class="viewer" id="viewer" hidden>
+    <img id="viewerImg" alt="Photo du jour">
+    <div class="viewer-actions">
+      <button class="btn ghost" id="vClose">Fermer</button>
+      <button class="btn" id="vSave">Enregistrer dans la galerie</button>
+      <button class="btn ghost" id="vDel">Supprimer</button>
+    </div>
+  </div>
 
   <div class="dialog" id="dialog" hidden>
     <div class="dialog-box">
