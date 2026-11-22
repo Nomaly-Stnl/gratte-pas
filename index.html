@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="fr-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7f9a80">
+  <meta name="description" content="Petit journal quotidien de la peau.">
+  <title>Gratte pas</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/icon.svg" alt="" class="logo" width="40" height="40">
+    <div>
+      <h1>Gratte pas</h1>
+      <p class="hello" id="hello">Bonsoir</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ AUJOURD'HUI ============ -->
+    <section id="v-today" class="view" data-view="today">
+      <div class="banner" id="bannerBackup" hidden>
+        <p id="bannerBackupText">Pense à faire une sauvegarde.</p>
+        <button class="btn small" data-go="data">Sauvegarder</button>
+      </div>
+      <div class="banner soft" id="bannerPoem" hidden>
+        <p>Petit bilan de la semaine : 7 questions, 1 minute.</p>
+        <button class="btn small" data-go="poem">Y aller</button>
+      </div>
+
+      <div class="daynav">
+        <button class="iconbtn" id="prevDay" aria-label="Jour précédent">‹</button>
+        <div class="daylabel">
+          <strong id="dayTitle">Aujourd'hui</strong>
+          <span id="dayDate"></span>
+        </div>
+        <button class="iconbtn" id="nextDay" aria-label="Jour suivant">›</button>
+      </div>
+
+      <div class="card">
+        <div class="scale" data-key="visage">
+          <div class="scale-head"><span>Visage</span><output></output></div>
+          <div class="track" role="slider" tabindex="0" aria-label="Visage, de 0 à 10" aria-valuemin="0" aria-valuemax="10"><div class="fill"></div><div class="thumb"></div></div>
+          <div class="ends"><span>calme</span><span>en feu</span></div>
+        </div>
+        <div class="scale" data-key="demangeaison">
+          <div class="scale-head"><span>Démangeaison</span><output></output></div>
+          <div class="track" role="slider" tabindex="0" aria-label="Démangeaison, de 0 à 10" aria-valuemin="0" aria-valuemax="10"><div class="fill"></div><div class="thumb"></div></div>
+          <div class="ends"><span>rien</span><span>insupportable</span></div>
+        </div>
+        <div class="scale" data-key="brulure">
+          <div class="scale-head"><span>Brûlure</span><output></output></div>
+          <div class="track" role="slider" tabindex="0" aria-label="Brûlure, de 0 à 10" aria-valuemin="0" aria-valuemax="10"><div class="fill"></div><div class="thumb"></div></div>
+          <div class="ends"><span>rien</span><span>très fort</span></div>
+        </div>
+        <button class="btn calm" id="calmDay">Journée tranquille : tout à 0</button>
+      </div>
+
+      <details class="card more" id="more">
+        <summary>Plus de détails <span class="hint">(facultatif)</span></summary>
+
+        <h3>Paupières gonflées</h3>
+        <div class="chips single" data-key="paupieres">
+          <button data-v="non">Non</button><button data-v="leger">Un peu</button><button data-v="fort">Beaucoup</button>
+        </div>
+
+        <h3>Aujourd'hui il y a eu…</h3>
+        <div class="chips toggles">
+          <button data-flag="yeux">Yeux rouges / larmes</button>
+          <button data-flag="eternuements">Éternuements</button>
+          <button data-flag="sommeil">Mal dormi</button>
+          <button data-flag="regles">Règles</button>
+        </div>
+
+        <h3>Ma journée</h3>
+        <div class="chips single" data-key="impact">
+          <button data-v="0">Normale</button><button data-v="1">Un peu gênée</button><button data-v="2">Très gênée</button><button data-v="3">Impossible</button>
+        </div>
+
+        <div class="scale" data-key="fatigue">
+          <div class="scale-head"><span>Fatigue / stress</span><output></output></div>
+          <div class="track" role="slider" tabindex="0" aria-label="Fatigue ou stress, de 0 à 10" aria-valuemin="0" aria-valuemax="10"><div class="fill"></div><div class="thumb"></div></div>
+          <div class="ends"><span>en forme</span><span>à bout</span></div>
+        </div>
+
+        <h3>Autres zones touchées</h3>
+        <div class="chips multi" data-list="zones"></div>
+
+        <h3>Traitements</h3>
+        <div class="chips multi" data-list="traitements"></div>
+
+        <h3>Contacts et activités</h3>
+        <div class="chips multi" data-list="expositions"></div>
+
+        <h3>Note</h3>
+        <textarea id="note" rows="3" placeholder="Ce qui sort de l'ordinaire… (le micro du clavier marche aussi)"></textarea>
+      </details>
+
+      <p class="saved" id="saved" aria-live="polite"></p>
+    </section>
+
+    <!-- ============ ÉVOLUTION ============ -->
+    <section id="v-trend" class="view" data-view="trend" hidden>
+      <h2>Évolution</h2>
+      <div class="seg" id="range">
+        <button data-days="14">14 jours</button><button data-days="30" class="on">30 jours</button><button data-days="90">90 jours</button>
+      </div>
+      <div class="card">
+        <div class="legend">
+          <span><i style="background:var(--c-visage)"></i>Visage</span>
+          <span><i style="background:var(--c-dem)"></i>Démangeaison</span>
+          <span><i style="background:var(--c-bru)"></i>Brûlure</span>
+        </div>
+        <div class="fig"><svg id="chart" role="img" aria-label="Courbe des notes"></svg></div>
+        <p class="caption">Zones ombrées : jours difficiles (une note à 5 ou plus).</p>
+      </div>
+      <div class="stats" id="stats"></div>
+      <h3 class="list-title">Jours notés <small>· visage, démangeaison, brûlure</small></h3>
+      <ul class="daylist" id="dayList"></ul>
+    </section>
+
+    <!-- ============ SEMAINE (POEM) ============ -->
+    <section id="v-poem" class="view" data-view="poem" hidden>
+      <h2>Bilan de la semaine</h2>
+      <p class="lead" id="poemWeek"></p>
+      <p class="muted">Sur les 7 derniers jours, combien de jours as-tu eu…</p>
+      <div id="poemQs"></div>
+      <div class="card poemscore" id="poemScore" hidden></div>
+      <h3 class="list-title">Bilans précédents</h3>
+      <ul class="daylist" id="poemList"></ul>
+      <p class="fine">Questionnaire POEM (Patient-Oriented Eczema Measure), utilisé par les dermatologues. Score de 0 à 28.</p>
+    </section>
+
+    <!-- ============ DONNÉES ============ -->
+    <section id="v-data" class="view" data-view="data" hidden>
+      <h2>Mes données</h2>
+      <p class="muted">Tout reste dans ce téléphone. Rien n'est envoyé nulle part.</p>
+
+      <div class="card">
+        <h3>Sauvegarde</h3>
+        <p id="backupInfo" class="muted"></p>
+        <p class="muted">Une fois par semaine : envoie le fichier par WhatsApp, mail ou sur Drive.</p>
+        <button class="btn" id="btnBackup">Sauvegarder</button>
+        <label class="btn ghost" for="restoreFile">Restaurer une sauvegarde</label>
+        <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+      </div>
+
+      <div class="card">
+        <h3>Pour le médecin (Excel)</h3>
+        <p class="muted">Fichiers CSV, ils s'ouvrent directement dans Excel.</p>
+        <button class="btn" id="btnCsv">Exporter le journal</button>
+        <button class="btn ghost" id="btnCsvPoem">Exporter les bilans de la semaine</button>
+      </div>
+
+      <div class="card">
+        <h3>Rappel du soir</h3>
+        <p class="muted">Ajoute un rappel quotidien dans Google Agenda.</p>
+        <div class="row">
+          <label for="remTime">Heure</label>
+          <input type="time" id="remTime" value="21:00">
+        </div>
+        <button class="btn" id="btnGcal">Ouvrir Google Agenda</button>
+        <button class="btn ghost" id="btnIcs">Autre agenda (fichier .ics)</button>
+      </div>
+
+      <div class="card danger">
+        <h3>Effacer</h3>
+        <button class="btn ghost" id="btnWipe">Effacer toutes les données</button>
+      </div>
+      <p class="fine" id="version"></p>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Navigation">
+    <button data-go="today" class="on"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10z"/></svg>Aujourd'hui</button>
+    <button data-go="trend"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 8-8"/></svg>Évolution</button>
+    <button data-go="poem"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>Semaine</button>
+    <button data-go="data"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Données</button>
+  </nav>
+
+  <div class="dialog" id="dialog" hidden>
+    <div class="dialog-box">
+      <p id="dialogText"></p>
+      <div class="dialog-actions">
+        <button class="btn ghost" id="dialogNo">Annuler</button>
+        <button class="btn" id="dialogYes">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
